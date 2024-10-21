@@ -39,13 +39,42 @@ const lastTodoIdAtom = atom({
 });
 
 function useTodosStatus() {
-  const [todos, setTodos] = useRecoilState(todosAtom); // 리코일 사용
-  // const [todos, setTodos] = React.useState([]);
-
+  const [todos, setTodos] = useRecoilState(todosAtom);
   const [lastTodoId, setLastTodoId] = useRecoilState(lastTodoIdAtom);
   const lastTodoIdRef = React.useRef(lastTodoId);
 
   lastTodoIdRef.current = lastTodoId;
+
+  // 초기 로드 시 localStorage에서 todo 목록 불러오기
+  React.useEffect(() => {
+    const storedTodos = localStorage.getItem('todos');
+    const storedLastTodoId = localStorage.getItem('lastTodoId');
+    
+    if (storedTodos) {
+      setTodos(JSON.parse(storedTodos)); // 로컬 저장소에서 todos 불러오기
+    } else {
+      // 로컬 저장소에 저장된 데이터가 없을 때 기본 데이터 추가
+      const defaultTodos = [
+        { id: 1, content: '스쿼트', regDate: dateToStr(new Date()), checked: false },
+        { id: 2, content: '벤치프레스', regDate: dateToStr(new Date()), checked: false },
+        { id: 3, content: '데드리프트\n런지', regDate: dateToStr(new Date()), checked: false },
+      ];
+      setTodos(defaultTodos);
+      setLastTodoId(3);
+    }
+
+    if (storedLastTodoId) {
+      setLastTodoId(Number(storedLastTodoId)); // 로컬 저장소에서 lastTodoId 불러오기
+    }
+  }, [setTodos, setLastTodoId]);
+
+  // ToDo 리스트가 변경될 때마다 localStorage에 저장
+  React.useEffect(() => {
+    if (todos.length > 0) {
+      localStorage.setItem('todos', JSON.stringify(todos));
+      localStorage.setItem('lastTodoId', lastTodoId);
+    }
+  }, [todos, lastTodoId]);
 
   const addTodo = (newContent) => {
     const id = ++lastTodoIdRef.current;
@@ -54,29 +83,35 @@ function useTodosStatus() {
       id,
       content: newContent,
       regDate: dateToStr(new Date()),
+      checked: false,
     };
-    setTodos((todos) => [newTodo, ...todos]);
+    setTodos((prevTodos) => [newTodo, ...prevTodos]); // 기존 todos에 추가
 
     return id;
   };
+
   const removeTodo = (id) => {
-    const newTodos = todos.filter((todo) => todo.id != id);
-    setTodos(newTodos);
+    setTodos((prevTodos) => {
+      const updatedTodos = prevTodos.filter((todo) => todo.id !== id);
+      localStorage.setItem('todos', JSON.stringify(updatedTodos)); // 삭제된 상태를 로컬 스토리지에 저장
+      return updatedTodos;
+    });
   };
 
-  // modify v1
-  const modifyTodo = (id, content) => {
-    const newTodos = todos.map((todo) => (todo.id != id ? todo : { ...todo, content }));
-    setTodos(newTodos);
-  };
-
-  // modify v2
-  const modifyTodoByIndex = (index, newContent) => {
-    const newTodos = todos.map((todo, _index) =>
-      _index != index ? todo : { ...todo, content: newContent },
+  const toggleChecked = (id) => {
+    setTodos((prevTodos) =>
+      prevTodos.map((todo) =>
+        todo.id === id ? { ...todo, checked: !todo.checked } : todo
+      )
     );
-    setTodos(newTodos);
   };
+
+  const modifyTodo = (id, content) => {
+    setTodos((prevTodos) =>
+      prevTodos.map((todo) => (todo.id !== id ? todo : { ...todo, content }))
+    );
+  };
+
   // modify v2
   const modifyTodoById = (id, newContent) => {
     const index = findTodoIndexById(id);
@@ -89,9 +124,10 @@ function useTodosStatus() {
   const findTodoIndexById = (id) => {
     return todos.findIndex((todo) => todo.id == id);
   };
+  
   const findTodoById = (id) => {
     const index = findTodoIndexById(id);
-    if (index == -1) {
+    if (index === -1) {
       return null;
     }
     return todos[index];
@@ -102,8 +138,8 @@ function useTodosStatus() {
     addTodo,
     removeTodo,
     modifyTodo,
+    toggleChecked,
     findTodoById,
-    modifyTodoById,
   };
 }
 
@@ -143,48 +179,54 @@ const NewTodoForm = ({ noticeSnackbarStatus }) => {
     </>
   );
 };
+
 const TodoListItem = ({ todo, index, openDrawer }) => {
+  const todosStatus = useTodosStatus();
+
   return (
-    <>
-      <li className="tw-mb-3" key={todo.id}>
-        <div className="tw-flex tw-flex-col tw-gap-2 tw-mt-3">
-          <div className="tw-flex tw-gap-x-2 tw-font-bold">
-            <Chip className="tw-pt-[3px]" label={`번호 : ${todo.id}`} variant="outlined" />
-            <Chip
-              className="tw-pt-[3px]"
-              label={`날짜 : ${todo.regDate}`}
-              variant="outlined"
-              color="primary"
-            />
-          </div>
-          <div className="tw-rounded-[10px] tw-shadow tw-flex tw-text-[14px] tw-min-h-[80px]">
-            <Button className="tw-flex-shrink-0 tw-rounded-[10px_0_0_10px]" color="inherit">
-              <FaCheck
-                className={classNames(
-                  'tw-text-3xl',
-                  {
-                    'tw-text-[--mui-color-primary-main]': index % 2 == 0,
-                  },
-                  { 'tw-text-[#dcdcdc]': index % 2 != 0 },
-                )}
-              />
-            </Button>
-            <div className="tw-bg-[#dcdcdc] tw-w-[2px] tw-h-[60px] tw-self-center"></div>
-            <div className="tw-bg-blue-300 tw-flex tw-items-center tw-p-3 tw-flex-grow hover:tw-text-[--mui-color-primary-main] tw-whitespace-pre-wrap tw-leading-relaxed tw-break-words">
-              할 일 : {todo.content}
-            </div>
-            <Button
-              onClick={() => {
-                openDrawer(todo.id);
-              }}
-              className="tw-flex-shrink-0 tw-rounded-[0_10px_10px_0]"
-              color="inherit">
-              <FaEllipsisV className="tw-text-[#dcdcdc] tw-text-2xl" />
-            </Button>
-          </div>
+    <li className="tw-mb-3" key={todo.id}>
+      <div className="tw-flex tw-flex-col tw-gap-2 tw-mt-3">
+        <div className="tw-flex tw-gap-x-2 tw-font-bold">
+          <Chip className="tw-pt-[3px]" label={`번호 : ${todo.id}`} variant="outlined" />
+          <Chip
+            className="tw-pt-[3px]"
+            label={`날짜 : ${todo.regDate}`}
+            variant="outlined"
+            color="primary"
+          />
         </div>
-      </li>
-    </>
+        <div className="tw-rounded-[10px] tw-shadow tw-flex tw-text-[14px] tw-min-h-[80px]">
+          <Button
+            className="tw-flex-shrink-0 tw-rounded-[10px_0_0_10px]"
+            color="inherit"
+            onClick={() => todosStatus.toggleChecked(todo.id)} // 클릭 시 체크 상태 토글
+          >
+            <FaCheck
+              className={classNames(
+              'tw-text-3xl',
+              {
+                'tw-text-[--mui-color-primary-main]': todo.checked, // 체크 상태에 따라 색상 변경
+              },
+              { 'tw-text-[#dcdcdc]': !todo.checked } // 체크되지 않은 경우 색상 설정
+            )}
+         />
+          </Button>
+          <div className="tw-bg-[#dcdcdc] tw-w-[2px] tw-h-[60px] tw-self-center"></div>
+          <div className="tw-bg-blue-300 tw-flex tw-items-center tw-p-3 tw-flex-grow hover:tw-text-[--mui-color-primary-main] tw-whitespace-pre-wrap tw-leading-relaxed tw-break-words">
+            할 일 : {todo.content}
+          </div>
+          <Button
+            onClick={() => {
+              openDrawer(todo.id);
+            }}
+            className="tw-flex-shrink-0 tw-rounded-[0_10px_10px_0]"
+            color="inherit"
+          >
+            <FaEllipsisV className="tw-text-[#dcdcdc] tw-text-2xl" />
+          </Button>
+        </div>
+      </div>
+    </li>
   );
 };
 
@@ -395,16 +437,8 @@ function useNoticeSnackbarStatus() {
 
 function App() {
   const todosStatus = useTodosStatus();
-
   const [open, setOpen] = React.useState(false);
-
   const noticeSnackbarStatus = useNoticeSnackbarStatus();
-
-  React.useEffect(() => {
-    todosStatus.addTodo('스쿼트');
-    todosStatus.addTodo('벤치프레스');
-    todosStatus.addTodo('데드리프트\n런지');
-  }, []);
 
   return (
     <>
